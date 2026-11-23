@@ -45,17 +45,32 @@ writeFileSync(
 
 // The grader collects /output as another user: every file it reads must be
 // world-readable and every folder world-executable, whatever the umask was.
+// A chmod can still fail: the grader runs as user 65534 while /output may
+// belong to root, and chmod on a directory you do not own dies with EPERM.
+// The copied files and the dossier are what the judge reads, so a chmod
+// that cannot be applied is skipped and the run still exits 0. The
+// successful path is unchanged: chmod still runs whenever it can.
 import { chmodSync, readdirSync, statSync } from 'node:fs';
+function chmodQuiet(path, mode) {
+  try {
+    chmodSync(path, mode);
+  } catch (err) {
+    // Not ours to chmod (e.g. EPERM on a root-owned /output): warn on
+    // stderr and continue — the copied files and the dossier are what
+    // the judge reads, so a skipped chmod is never fatal.
+    console.error(`warning: chmod ${path} skipped (${err.code ?? err.message})`);
+  }
+}
 function chmodTree(dir, fileMode, dirMode) {
   for (const entry of readdirSync(dir)) {
     const path = join(dir, entry);
     if (statSync(path).isDirectory()) {
-      chmodSync(path, dirMode);
+      chmodQuiet(path, dirMode);
       chmodTree(path, fileMode, dirMode);
     } else {
-      chmodSync(path, fileMode);
+      chmodQuiet(path, fileMode);
     }
   }
 }
-chmodSync(out, 0o755);
+chmodQuiet(out, 0o755);
 chmodTree(out, 0o644, 0o755);
